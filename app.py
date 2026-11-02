@@ -101,7 +101,12 @@ def wczytaj_i_przetworz_dane():
     if not os.path.exists("baza_spolek.csv"):
         return pd.DataFrame()
     
-    df = pd.read_csv("baza_spolek.csv")
+    try:
+        df = pd.read_csv("baza_spolek.csv")
+    except pd.errors.EmptyDataError:
+        # Zabezpieczenie przed błędem, gdy plik istnieje, ale ma 0 bajtów
+        st.error("Plik bazy danych jest pusty. Pobierz bazę ponownie z panelu bocznego.")
+        return pd.DataFrame()
     
     # Obliczanie CAPE na podstawie dostępnych danych jako fallback
     if "Sredni_EPS_10_lat" in df.columns:
@@ -110,6 +115,10 @@ def wczytaj_i_przetworz_dane():
         df["CAPE_Obliczone"] = df.get("P/E", np.nan)
 
     return df
+
+
+    
+    
 
 # --- INTERFEJS UŻYTKOWNIKA ---
 
