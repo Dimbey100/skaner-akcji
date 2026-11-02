@@ -4,6 +4,8 @@ import yfinance as yf
 import numpy as np
 import time
 import os
+import requests
+from io import StringIO
 
 # Konfiguracja strony
 st.set_page_config(page_title="Skaner Giełdowy", layout="wide", page_icon="📊")
@@ -13,8 +15,19 @@ st.title("Skaner Akcji 📊")
 
 def get_sp500_tickers(limit=None):
     url = 'https://en.wikipedia.org/wiki/List_of_S%26P_500_companies'
-    tables = pd.read_html(url)
+    
+    # Przedstawiamy się jako przeglądarka Chrome, żeby Wikipedia nas nie zablokowała
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    
+    response = requests.get(url, headers=headers)
+    
+    # Nowe wersje pandas wymagają opakowania tekstu w StringIO
+    tables = pd.read_html(StringIO(response.text))
+    
     tickers = tables[0]['Symbol'].str.replace('.', '-').tolist()
+    
     if limit:
         return tickers[:limit]
     return tickers
@@ -67,11 +80,11 @@ def pobierz_baze(limit_spolek, progress_bar, status_text):
         time.sleep(0.2) # Zabezpieczenie przed banem od Yahoo
         progress_bar.progress((i + 1) / total) # Pasek postępu rośnie
         
-        # Opcjonalny autozapis w trakcie
+        # Opcjonalny autozapis w trakcie co 50 spółek
         if (i + 1) % 50 == 0:
             pd.DataFrame(data).to_csv("baza_spolek.csv", index=False)
 
-    # Zapis końcowy
+    # Zapis końcowy wszystkich pobranych danych
     df = pd.DataFrame(data)
     df.to_csv("baza_spolek.csv", index=False)
     
