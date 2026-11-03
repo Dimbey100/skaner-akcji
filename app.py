@@ -3,90 +3,115 @@ import pandas as pd
 import numpy as np
 import os
 
-# Konfiguracja strony
 st.set_page_config(page_title="Skaner Giełdowy", layout="wide", page_icon="📊")
 st.title("Globalny Skaner Akcji 📊")
+
+def oblicz_cape(df):
+    if "Sredni_EPS_10_lat" in df.columns:
+        return df["Cena"] / df["Sredni_EPS_10_lat"]
+    return np.nan
+
+def oblicz_f_score(row):
+    wymagane_kolumny = [
+        "ROA", "CFO", "ROA_poprzedni", "Zadłużenie_Długoterminowe", 
+        "Zadłużenie_poprzednie", "Current_Ratio", "Current_Ratio_poprzednie",
+        "Liczba_Akcji", "Liczba_Akcji_poprzednia", "Gross_Margin", 
+        "Gross_Margin_poprzednia", "Asset_Turnover", "Asset_Turnover_poprzedni"
+    ]
+    
+    for kol in wymagane_kolumny:
+        if kol not in row.index or pd.isna(row.get(kol)):
+            return np.nan
+
+    score = 0
+    if row["ROA"] > 0: score += 1
+    if row["CFO"] > 0: score += 1
+    if row["ROA"] > row["ROA_poprzedni"]: score += 1
+    if row["CFO"] > row["ROA"]: score += 1
+    
+    if row["Zadłużenie_Długoterminowe"] < row["Zadłużenie_poprzednie"]: score += 1
+    if row["Current_Ratio"] > row["Current_Ratio_poprzednie"]: score += 1
+    if row["Liczba_Akcji"] <= row["Liczba_Akcji_poprzednia"]: score += 1
+    
+    if row["Gross_Margin"] > row["Gross_Margin_poprzednia"]: score += 1
+    if row["Asset_Turnover"] > row["Asset_Turnover_poprzedni"]: score += 1
+    
+    return score
 
 @st.cache_data
 def wczytaj_i_przetworz_dane():
     df_lista = []
     
-    # Próba wczytania bazy S&P 500
     if os.path.exists("sp500_baza.csv"):
-        try:
-            df_lista.append(pd.read_csv("sp500_baza.csv"))
-        except pd.errors.EmptyDataError:
-            st.warning("Plik 'sp500_baza.csv' jest pusty.")
+        try: df_lista.append(pd.read_csv("sp500_baza.csv"))
+        except pd.errors.EmptyDataError: st.warning("Plik 'sp500_baza.csv' jest pusty.")
             
-    # Próba wczytania bazy GPW
     if os.path.exists("gpw_baza.csv"):
-        try:
-            df_lista.append(pd.read_csv("gpw_baza.csv"))
-        except pd.errors.EmptyDataError:
-            st.warning("Plik 'gpw_baza.csv' jest pusty.")
+        try: df_lista.append(pd.read_csv("gpw_baza.csv"))
+        except pd.errors.EmptyDataError: st.warning("Plik 'gpw_baza.csv' jest pusty.")
 
-    # Połączenie obu baz, jeśli istnieją
     if not df_lista:
-        st.error("Brak plików z bazami danych. Wgraj 'sp500_baza.csv' oraz 'gpw_baza.csv' na GitHub.")
+        st.error("Brak plików z bazami danych. Wgraj 'sp500_baza.csv' oraz 'gpw_baza.csv'.")
         return pd.DataFrame()
         
     df = pd.concat(df_lista, ignore_index=True)
 
-    # Obliczanie CAPE (fallback do P/E jeśli brak długiej historii)
-    if "Sredni_EPS_10_lat" in df.columns:
-        df["CAPE_Obliczone"] = df["Cena"] / df["Sredni_EPS_10_lat"]
-    else:
-        df["CAPE_Obliczone"] = df.get("P/E", np.nan)
+    df["CAPE_Obliczone"] = oblicz_cape(df)
+    if "F-Score" not in df.columns or df["F-Score"].isna().all():
+        df["F-Score"] = df.apply(oblicz_f_score, axis=1)
 
     return df
 
-# Wczytanie połączonych danych z plików
 df = wczytaj_i_przetworz_dane()
 
+# Funkcja pomocnicza do tworzenia estetycznych pól MIN/MAX
+def stworz_zakres(nazwa, min_def, max_def, krok=1.0, typ=float):
+    st.markdown(f"**{nazwa}**")
+    c1, c2 = st.columns(2)
+    v_min = c1.number_input("MIN", value=typ(min_def), step=typ(krok), key=f"{nazwa}_min")
+    v_max = c2.number_input("MAX", value=typ(max_def), step=typ(krok), key=f"{nazwa}_max")
+    return v_min, v_max
+
 if not df.empty:
-    # --- PANEL BOCZNY: WYBÓR RYNKU ---
     st.sidebar.header("⚙️ Opcje Skanera")
     st.sidebar.success(f"Wczytano łącznie: {len(df)} spółek")
     
     wybrany_rynek = st.sidebar.radio(
-        "Wybierz koszyk spółek do skanowania:",
+        "Wybierz koszyk spółek:",
         ["Wszystkie (USA + Polska)", "Tylko S&P 500 (USA)", "Tylko GPW (Polska)"]
     )
     
-    # Filtrowanie wstępne po rynku
-    if wybrany_rynek == "Tylko S&P 500 (USA)":
-        df = df[df["Rynek"] == "S&P 500 (USA)"]
-    elif wybrany_rynek == "Tylko GPW (Polska)":
-        df = df[df["Rynek"] == "GPW (Polska)"]
+    if wybrany_rynek == "Tylko S&P 500 (USA)": df = df[df["Rynek"] == "S&P 500 (USA)"]
+    elif wybrany_rynek == "Tylko GPW (Polska)": df = df[df["Rynek"] == "GPW (Polska)"]
 
-    st.subheader(f"Filtry Wskaźników: {wybrany_rynek}")
+    st.subheader("Wpisz zakresy (MIN i MAX)")
     
-    col1, col2 = st.columns(2)
+    colA, colB = st.columns(2)
     
-    with col1:
-        pe_range = st.slider("P/E (Cena/Zysk)", 0.0, 200.0, (0.0, 30.0))
-        cape_range = st.slider("CAPE (Shiller P/E)", 0.0, 200.0, (0.0, 35.0))
-        ps_range = st.slider("P/S (Cena/Sprzedaż)", 0.0, 50.0, (0.0, 5.0))
-        pbv_range = st.slider("P/BV (Cena/Wartość Księgowa)", 0.0, 50.0, (0.0, 5.0))
-        fscore_range = st.slider("F-Score (Piotroski)", 0, 9, (0, 9))
+    with colA:
+        pe_min, pe_max = stworz_zakres("P/E (Cena/Zysk)", 0.0, 30.0)
+        cape_min, cape_max = stworz_zakres("CAPE (Shiller P/E)", 0.0, 35.0)
+        ps_min, ps_max = stworz_zakres("P/S (Cena/Sprzedaż)", 0.0, 5.0)
+        pbv_min, pbv_max = stworz_zakres("P/BV (Wartość Księgowa)", 0.0, 5.0)
+        fscore_min, fscore_max = stworz_zakres("F-Score (Piotroski)", 0, 9, krok=1, typ=int)
         
-    with col2:
-        div_range = st.slider("Stopa Dywidendy (%)", 0.0, 30.0, (0.0, 20.0))
-        roe_range = st.slider("ROE (%)", -100.0, 300.0, (10.0, 200.0))
-        debt_range = st.slider("Zadłużenie/Kapitał", 0.0, 500.0, (0.0, 100.0))
-        margin_range = st.slider("Marża Zysku (%)", -50.0, 100.0, (0.0, 100.0))
+    with colB:
+        div_min, div_max = stworz_zakres("Stopa Dywidendy (%)", 0.0, 20.0)
+        roe_min, roe_max = stworz_zakres("ROE (%)", 10.0, 200.0)
+        debt_min, debt_max = stworz_zakres("Zadłużenie/Kapitał", 0.0, 100.0)
+        margin_min, margin_max = stworz_zakres("Marża Zysku (%)", 0.0, 100.0)
 
-    # Główna logika filtrowania skanera
+    # Logika filtrowania z obsługą braków danych (NaN)
     filtered_df = df[
-        (df.get("P/E", pd.Series(dtype=float)).isna() | df.get("P/E", pd.Series(dtype=float)).between(pe_range[0], pe_range[1])) &
-        (df["CAPE_Obliczone"].isna() | df["CAPE_Obliczone"].between(cape_range[0], cape_range[1])) &
-        (df.get("P/S", pd.Series(dtype=float)).isna() | df.get("P/S", pd.Series(dtype=float)).between(ps_range[0], ps_range[1])) &
-        (df.get("P/BV", pd.Series(dtype=float)).isna() | df.get("P/BV", pd.Series(dtype=float)).between(pbv_range[0], pbv_range[1])) &
-        (df.get("Stopa Dywidendy (%)", pd.Series(dtype=float)).isna() | df.get("Stopa Dywidendy (%)", pd.Series(dtype=float)).between(div_range[0], div_range[1])) &
-        (df.get("ROE (%)", pd.Series(dtype=float)).isna() | df.get("ROE (%)", pd.Series(dtype=float)).between(roe_range[0], roe_range[1])) &
-        (df.get("Zadłużenie/Kapitał", pd.Series(dtype=float)).isna() | df.get("Zadłużenie/Kapitał", pd.Series(dtype=float)).between(debt_range[0], debt_range[1])) &
-        (df.get("Marża Zysku (%)", pd.Series(dtype=float)).isna() | df.get("Marża Zysku (%)", pd.Series(dtype=float)).between(margin_range[0], margin_range[1])) &
-        (df.get("F-Score", pd.Series(dtype=float)).isna() | df.get("F-Score", pd.Series(dtype=float)).between(fscore_range[0], fscore_range[1]))
+        (df.get("P/E", pd.Series(dtype=float)).isna() | df.get("P/E", pd.Series(dtype=float)).between(pe_min, pe_max)) &
+        (df["CAPE_Obliczone"].isna() | df["CAPE_Obliczone"].between(cape_min, cape_max)) &
+        (df.get("P/S", pd.Series(dtype=float)).isna() | df.get("P/S", pd.Series(dtype=float)).between(ps_min, ps_max)) &
+        (df.get("P/BV", pd.Series(dtype=float)).isna() | df.get("P/BV", pd.Series(dtype=float)).between(pbv_min, pbv_max)) &
+        (df.get("Stopa Dywidendy (%)", pd.Series(dtype=float)).isna() | df.get("Stopa Dywidendy (%)", pd.Series(dtype=float)).between(div_min, div_max)) &
+        (df.get("ROE (%)", pd.Series(dtype=float)).isna() | df.get("ROE (%)", pd.Series(dtype=float)).between(roe_min, roe_max)) &
+        (df.get("Zadłużenie/Kapitał", pd.Series(dtype=float)).isna() | df.get("Zadłużenie/Kapitał", pd.Series(dtype=float)).between(debt_min, debt_max)) &
+        (df.get("Marża Zysku (%)", pd.Series(dtype=float)).isna() | df.get("Marża Zysku (%)", pd.Series(dtype=float)).between(margin_min, margin_max)) &
+        (df["F-Score"].isna() | df["F-Score"].between(fscore_min, fscore_max))
     ]
     
     st.success(f"Znaleziono {len(filtered_df)} spółek spełniających kryteria w tym koszyku (z {len(df)})")
