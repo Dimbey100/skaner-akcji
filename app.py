@@ -5,23 +5,34 @@ import os
 
 # Konfiguracja strony
 st.set_page_config(page_title="Skaner Giełdowy", layout="wide", page_icon="📊")
-st.title("Skaner Akcji 📊")
+st.title("Globalny Skaner Akcji 📊")
 
 @st.cache_data
 def wczytaj_i_przetworz_dane():
-    # Sprawdzenie czy plik istnieje
-    if not os.path.exists("baza_spolek.csv"):
-        st.error("Brak pliku 'baza_spolek.csv'. Wgraj wygenerowany plik na GitHub obok skryptu app.py.")
-        return pd.DataFrame()
+    df_lista = []
     
-    # Wczytanie pliku z zabezpieczeniem przed pustym dokumentem
-    try:
-        df = pd.read_csv("baza_spolek.csv")
-    except pd.errors.EmptyDataError:
-        st.error("Plik 'baza_spolek.csv' jest pusty. Wgraj poprawny plik.")
-        return pd.DataFrame()
+    # Próba wczytania bazy S&P 500
+    if os.path.exists("sp500_baza.csv"):
+        try:
+            df_lista.append(pd.read_csv("sp500_baza.csv"))
+        except pd.errors.EmptyDataError:
+            st.warning("Plik 'sp500_baza.csv' jest pusty.")
+            
+    # Próba wczytania bazy GPW
+    if os.path.exists("gpw_baza.csv"):
+        try:
+            df_lista.append(pd.read_csv("gpw_baza.csv"))
+        except pd.errors.EmptyDataError:
+            st.warning("Plik 'gpw_baza.csv' jest pusty.")
 
-    # Obliczanie CAPE na podstawie dostępnych danych (fallback do P/E jeśli brak 10-letniego zysku)
+    # Połączenie obu baz, jeśli istnieją
+    if not df_lista:
+        st.error("Brak plików z bazami danych. Wgraj 'sp500_baza.csv' oraz 'gpw_baza.csv' na GitHub.")
+        return pd.DataFrame()
+        
+    df = pd.concat(df_lista, ignore_index=True)
+
+    # Obliczanie CAPE (fallback do P/E jeśli brak długiej historii)
     if "Sredni_EPS_10_lat" in df.columns:
         df["CAPE_Obliczone"] = df["Cena"] / df["Sredni_EPS_10_lat"]
     else:
@@ -29,21 +40,29 @@ def wczytaj_i_przetworz_dane():
 
     return df
 
-# Wczytanie danych z pliku
+# Wczytanie połączonych danych z plików
 df = wczytaj_i_przetworz_dane()
 
-# Jeśli tabela nie jest pusta, wyświetlamy interfejs
 if not df.empty:
-    # Panel boczny z informacją o wczytanej bazie
-    st.sidebar.header("⚙️ Informacje o bazie")
-    st.sidebar.success(f"Wczytano spółek: {len(df)}")
-    st.sidebar.info("Baza danych ładuje się błyskawicznie z gotowego pliku .csv")
+    # --- PANEL BOCZNY: WYBÓR RYNKU ---
+    st.sidebar.header("⚙️ Opcje Skanera")
+    st.sidebar.success(f"Wczytano łącznie: {len(df)} spółek")
+    
+    wybrany_rynek = st.sidebar.radio(
+        "Wybierz koszyk spółek do skanowania:",
+        ["Wszystkie (USA + Polska)", "Tylko S&P 500 (USA)", "Tylko GPW (Polska)"]
+    )
+    
+    # Filtrowanie wstępne po rynku
+    if wybrany_rynek == "Tylko S&P 500 (USA)":
+        df = df[df["Rynek"] == "S&P 500 (USA)"]
+    elif wybrany_rynek == "Tylko GPW (Polska)":
+        df = df[df["Rynek"] == "GPW (Polska)"]
 
-    st.subheader("Filtry Wskaźników")
+    st.subheader(f"Filtry Wskaźników: {wybrany_rynek}")
     
     col1, col2 = st.columns(2)
     
-    # Lewa kolumna suwaków
     with col1:
         pe_range = st.slider("P/E (Cena/Zysk)", 0.0, 200.0, (0.0, 30.0))
         cape_range = st.slider("CAPE (Shiller P/E)", 0.0, 200.0, (0.0, 35.0))
@@ -51,14 +70,13 @@ if not df.empty:
         pbv_range = st.slider("P/BV (Cena/Wartość Księgowa)", 0.0, 50.0, (0.0, 5.0))
         fscore_range = st.slider("F-Score (Piotroski)", 0, 9, (0, 9))
         
-    # Prawa kolumna suwaków
     with col2:
         div_range = st.slider("Stopa Dywidendy (%)", 0.0, 30.0, (0.0, 20.0))
         roe_range = st.slider("ROE (%)", -100.0, 300.0, (10.0, 200.0))
         debt_range = st.slider("Zadłużenie/Kapitał", 0.0, 500.0, (0.0, 100.0))
         margin_range = st.slider("Marża Zysku (%)", -50.0, 100.0, (0.0, 100.0))
 
-    # Logika filtrowania z obsługą wartości pustych (NaN)
+    # Główna logika filtrowania skanera
     filtered_df = df[
         (df.get("P/E", pd.Series(dtype=float)).isna() | df.get("P/E", pd.Series(dtype=float)).between(pe_range[0], pe_range[1])) &
         (df["CAPE_Obliczone"].isna() | df["CAPE_Obliczone"].between(cape_range[0], cape_range[1])) &
@@ -71,10 +89,9 @@ if not df.empty:
         (df.get("F-Score", pd.Series(dtype=float)).isna() | df.get("F-Score", pd.Series(dtype=float)).between(fscore_range[0], fscore_range[1]))
     ]
     
-    st.success(f"Znaleziono {len(filtered_df)} spółek (z {len(df)} w bazie)")
+    st.success(f"Znaleziono {len(filtered_df)} spółek spełniających kryteria w tym koszyku (z {len(df)})")
     
-    # Wybór kolumn do wyświetlenia (zabezpieczenie na wypadek braku którejś w pliku CSV)
-    docelowe_kolumny = ["Spółka", "Cena", "P/E", "CAPE_Obliczone", "P/S", "P/BV", "Stopa Dywidendy (%)", "ROE (%)", "Zadłużenie/Kapitał", "Marża Zysku (%)", "F-Score"]
+    docelowe_kolumny = ["Spółka", "Rynek", "Cena", "P/E", "CAPE_Obliczone", "P/S", "P/BV", "Stopa Dywidendy (%)", "ROE (%)", "Zadłużenie/Kapitał", "Marża Zysku (%)", "F-Score"]
     istniejace_kolumny = [kol for kol in docelowe_kolumny if kol in filtered_df.columns]
     
     widok_df = filtered_df[istniejace_kolumny].round(2)
