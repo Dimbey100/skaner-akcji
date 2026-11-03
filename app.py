@@ -68,4 +68,14 @@ if not df.empty:
         (df.get("ROE (%)", pd.Series(dtype=float)).isna() | df.get("ROE (%)", pd.Series(dtype=float)).between(roe_range[0], roe_range[1])) &
         (df.get("Zadłużenie/Kapitał", pd.Series(dtype=float)).isna() | df.get("Zadłużenie/Kapitał", pd.Series(dtype=float)).between(debt_range[0], debt_range[1])) &
         (df.get("Marża Zysku (%)", pd.Series(dtype=float)).isna() | df.get("Marża Zysku (%)", pd.Series(dtype=float)).between(margin_range[0], margin_range[1])) &
-        (df.get("F-Score", pd.Series(dtype=float)).isna() | df.get("F-Score", pd.Series(dtype=float
+        (df.get("F-Score", pd.Series(dtype=float)).isna() | df.get("F-Score", pd.Series(dtype=float)).between(fscore_range[0], fscore_range[1]))
+    ]
+    
+    st.success(f"Znaleziono {len(filtered_df)} spółek (z {len(df)} w bazie)")
+    
+    # Wybór kolumn do wyświetlenia (zabezpieczenie na wypadek braku którejś w pliku CSV)
+    docelowe_kolumny = ["Spółka", "Cena", "P/E", "CAPE_Obliczone", "P/S", "P/BV", "Stopa Dywidendy (%)", "ROE (%)", "Zadłużenie/Kapitał", "Marża Zysku (%)", "F-Score"]
+    istniejace_kolumny = [kol for kol in docelowe_kolumny if kol in filtered_df.columns]
+    
+    widok_df = filtered_df[istniejace_kolumny].round(2)
+    st.dataframe(widok_df, use_container_width=True, hide_index=True)
