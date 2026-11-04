@@ -52,7 +52,6 @@ def wczytaj_i_przetworz_dane():
         return pd.DataFrame()
         
     df = pd.concat(df_lista, ignore_index=True)
-    
     df.rename(columns={"Zadłużenie/Kapitał": "Zadłużenie/Kapitał (%)"}, inplace=True)
 
     df["CAPE_Obliczone"] = oblicz_cape(df)
@@ -60,8 +59,6 @@ def wczytaj_i_przetworz_dane():
         df["F-Score"] = df.apply(oblicz_f_score, axis=1)
 
     return df
-
-df = wczytaj_i_przetworz_dane()
 
 def stworz_zakres(nazwa, min_def, max_def, krok=1.0, typ=float):
     st.markdown("---")
@@ -71,18 +68,50 @@ def stworz_zakres(nazwa, min_def, max_def, krok=1.0, typ=float):
     v_max = c2.number_input("MAX", value=typ(max_def), step=typ(krok), key=f"{nazwa}_max", disabled=not wlaczone)
     return wlaczone, v_min, v_max
 
+df = wczytaj_i_przetworz_dane()
+
 if not df.empty:
+    # Inicjalizacja pamięci dla ulubionych spółek
+    if 'ulubione' not in st.session_state:
+        st.session_state['ulubione'] = []
+
     st.sidebar.header("⚙️ Opcje Skanera")
     st.sidebar.success(f"Wczytano łącznie: {len(df)} spółek")
     
+    # 1. Wybór rynku
     wybrany_rynek = st.sidebar.radio(
         "Wybierz koszyk spółek:",
         ["Wszystkie (USA + Polska)", "Tylko S&P 500 (USA)", "Tylko GPW (Polska)"]
     )
     
-    if wybrany_rynek == "Tylko S&P 500 (USA)": df = df[df["Rynek"] == "S&P 500 (USA)"]
-    elif wybrany_rynek == "Tylko GPW (Polska)": df = df[df["Rynek"] == "GPW (Polska)"]
+    # 2. Sekcja Ulubionych
+    st.sidebar.markdown("---")
+    st.sidebar.subheader("⭐ Ulubione Spółki")
+    
+    wszystkie_symbole = sorted(df["Spółka"].tolist())
+    
+    wybrane_spolki = st.sidebar.multiselect(
+        "Dodaj spółki do obserwowanych:",
+        options=wszystkie_symbole,
+        default=[s for s in st.session_state['ulubione'] if s in wszystkie_symbole],
+        help="Wpisz lub wybierz z listy skróty spółek, które chcesz śledzić."
+    )
+    st.session_state['ulubione'] = wybrane_spolki
+    
+    pokaz_tylko_ulubione = st.sidebar.checkbox("👁️ Pokazuj TYLKO moje ulubione spółki", value=False)
+    
+    # --- Aplikowanie wyboru rynku i ulubionych ---
+    if wybrany_rynek == "Tylko S&P 500 (USA)": 
+        df = df[df["Rynek"] == "S&P 500 (USA)"]
+    elif wybrany_rynek == "Tylko GPW (Polska)": 
+        df = df[df["Rynek"] == "GPW (Polska)"]
 
+    if pokaz_tylko_ulubione:
+        df = df[df["Spółka"].isin(st.session_state['ulubione'])]
+        if df.empty:
+            st.warning("Nie masz żadnych ulubionych spółek w tym koszyku lub lista jest pusta.")
+
+    # --- Budowa interfejsu filtrów MIN / MAX ---
     st.subheader("Filtry Wskaźników")
     colA, colB = st.columns(2)
     
@@ -99,6 +128,7 @@ if not df.empty:
         debt_wl, debt_min, debt_max = stworz_zakres("Zadłużenie/Kapitał (%)", 0.0, 200.0)
         margin_wl, margin_min, margin_max = stworz_zakres("Marża Zysku (%)", 0.0, 50.0)
 
+    # --- Logika maskowania (filtrowania wyników) ---
     mask = pd.Series(True, index=df.index)
     
     if pe_wl: mask &= (df["P/E"].isna() | df["P/E"].between(pe_min, pe_max))
@@ -116,7 +146,6 @@ if not df.empty:
     st.markdown("---")
     st.success(f"Znaleziono {len(filtered_df)} spółek spełniających wybrane kryteria (z {len(df)})")
     
-    # Dodano kolumnę ISIN zaraz obok nazwy spółki
     docelowe_kolumny = ["Spółka", "ISIN", "Rynek", "Cena", "P/E", "CAPE_Obliczone", "P/S", "P/BV", "Stopa Dywidendy (%)", "ROE (%)", "Zadłużenie/Kapitał (%)", "Marża Zysku (%)", "F-Score"]
     istniejace_kolumny = [kol for kol in docelowe_kolumny if kol in filtered_df.columns]
     
