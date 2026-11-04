@@ -2,9 +2,25 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import os
+import json
 
 st.set_page_config(page_title="Skaner Giełdowy", layout="wide", page_icon="📊")
 st.title("Globalny Skaner Akcji 📊")
+
+# --- ZAPIS ULUBIONYCH DO PLIKU ---
+def wczytaj_ulubione():
+    if os.path.exists("ulubione.json"):
+        try:
+            with open("ulubione.json", "r") as f:
+                return json.load(f)
+        except:
+            return []
+    return []
+
+def zapisz_ulubione():
+    # Pobiera aktualny stan listy i zapisuje do pliku przy każdej zmianie
+    with open("ulubione.json", "w") as f:
+        json.dump(st.session_state["moje_ulubione_widget"], f)
 
 def oblicz_cape(df):
     if "Sredni_EPS_10_lat" in df.columns:
@@ -71,36 +87,39 @@ def stworz_zakres(nazwa, min_def, max_def, krok=1.0, typ=float):
 df = wczytaj_i_przetworz_dane()
 
 if not df.empty:
-    # Inicjalizacja pamięci dla ulubionych spółek
-    if 'ulubione' not in st.session_state:
-        st.session_state['ulubione'] = []
-
     st.sidebar.header("⚙️ Opcje Skanera")
     st.sidebar.success(f"Wczytano łącznie: {len(df)} spółek")
     
-    # 1. Wybór rynku
     wybrany_rynek = st.sidebar.radio(
         "Wybierz koszyk spółek:",
         ["Wszystkie (USA + Polska)", "Tylko S&P 500 (USA)", "Tylko GPW (Polska)"]
     )
     
-    # 2. Sekcja Ulubionych
     st.sidebar.markdown("---")
     st.sidebar.subheader("⭐ Ulubione Spółki")
     
     wszystkie_symbole = sorted(df["Spółka"].tolist())
     
+    # Wczytanie z pliku (wykonuje się tylko raz)
+    if 'ulubione' not in st.session_state:
+        st.session_state['ulubione'] = wczytaj_ulubione()
+        
+    # Zabezpieczenie przed błędem, gdybyś usunął spółkę z bazy CSV, ale została w pliku z ulubionymi
+    bezpieczne_ulubione = [s for s in st.session_state['ulubione'] if s in wszystkie_symbole]
+    
     wybrane_spolki = st.sidebar.multiselect(
         "Dodaj spółki do obserwowanych:",
         options=wszystkie_symbole,
-        default=[s for s in st.session_state['ulubione'] if s in wszystkie_symbole],
-        help="Wpisz lub wybierz z listy skróty spółek, które chcesz śledzić."
+        default=bezpieczne_ulubione,
+        help="Wpisz lub wybierz z listy skróty spółek, które chcesz śledzić.",
+        key="moje_ulubione_widget",
+        on_change=zapisz_ulubione # <--- Wywołuje zapis do pliku przy każdej zmianie
     )
+    
     st.session_state['ulubione'] = wybrane_spolki
     
     pokaz_tylko_ulubione = st.sidebar.checkbox("👁️ Pokazuj TYLKO moje ulubione spółki", value=False)
     
-    # --- Aplikowanie wyboru rynku i ulubionych ---
     if wybrany_rynek == "Tylko S&P 500 (USA)": 
         df = df[df["Rynek"] == "S&P 500 (USA)"]
     elif wybrany_rynek == "Tylko GPW (Polska)": 
@@ -111,7 +130,6 @@ if not df.empty:
         if df.empty:
             st.warning("Nie masz żadnych ulubionych spółek w tym koszyku lub lista jest pusta.")
 
-    # --- Budowa interfejsu filtrów MIN / MAX ---
     st.subheader("Filtry Wskaźników")
     colA, colB = st.columns(2)
     
@@ -128,7 +146,6 @@ if not df.empty:
         debt_wl, debt_min, debt_max = stworz_zakres("Zadłużenie/Kapitał (%)", 0.0, 200.0)
         margin_wl, margin_min, margin_max = stworz_zakres("Marża Zysku (%)", 0.0, 50.0)
 
-    # --- Logika maskowania (filtrowania wyników) ---
     mask = pd.Series(True, index=df.index)
     
     if pe_wl: mask &= (df["P/E"].isna() | df["P/E"].between(pe_min, pe_max))
