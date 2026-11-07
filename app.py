@@ -76,7 +76,10 @@ def wczytaj_i_przetworz_dane():
         return pd.DataFrame()
         
     df = pd.concat(df_lista, ignore_index=True)
-    df.rename(columns={"Zadłużenie/Kapitał": "Zadłużenie/Kapitał (%)"}, inplace=True)
+    
+    # Ujednolicenie nazwy kolumny, jeśli plik ze starego skryptu ma starą nazwę
+    if "Zadłużenie/Kapitał" in df.columns and "Zadłużenie/Kapitał (%)" not in df.columns:
+        df.rename(columns={"Zadłużenie/Kapitał": "Zadłużenie/Kapitał (%)"}, inplace=True)
 
     df["CAPE_Obliczone"] = oblicz_cape(df)
     if "F-Score" not in df.columns or df["F-Score"].isna().all():
@@ -98,7 +101,7 @@ if not df.empty:
     st.sidebar.header("⚙️ Opcje Skanera")
     st.sidebar.success(f"Wczytano łącznie: {len(df)} spółek")
     
-    # Rozszerzone menu wyboru rynku
+    # Menu wyboru rynku
     opcje_rynkow = ["Wszystkie Rynki", "S&P 500 (USA)", "GPW (Polska)", "Europa Zachodnia", "Azja"]
     wybrany_rynek = st.sidebar.radio("Wybierz koszyk spółek:", opcje_rynkow)
     
@@ -116,7 +119,7 @@ if not df.empty:
         "Dodaj spółki do obserwowanych:",
         options=wszystkie_symbole,
         default=bezpieczne_ulubione,
-        help="Wpisz lub wybierz z listy skróty spółek, które chcesz śledzić.",
+        help="Wpisz lub wybierz z listy skróty/nazwy spółek, które chcesz śledzić.",
         key="moje_ulubione_widget",
         on_change=zapisz_ulubione
     )
@@ -150,6 +153,7 @@ if not df.empty:
         debt_wl, debt_min, debt_max = stworz_zakres("Zadłużenie/Kapitał (%)", 0.0, 200.0)
         margin_wl, margin_min, margin_max = stworz_zakres("Marża Zysku (%)", 0.0, 50.0)
 
+    # Budowanie maski do filtrów
     mask = pd.Series(True, index=df.index)
     
     if pe_wl: mask &= (df["P/E"].isna() | df["P/E"].between(pe_min, pe_max))
@@ -167,6 +171,7 @@ if not df.empty:
     st.markdown("---")
     st.success(f"Znaleziono {len(filtered_df)} spółek spełniających wybrane kryteria (z {len(df)})")
     
+    # Prezentacja docelowa
     docelowe_kolumny = ["Spółka", "ISIN", "Rynek", "Cena", "P/E", "CAPE_Obliczone", "P/S", "P/BV", "Stopa Dywidendy (%)", "ROE (%)", "Zadłużenie/Kapitał (%)", "Marża Zysku (%)", "F-Score"]
     istniejace_kolumny = [kol for kol in docelowe_kolumny if kol in filtered_df.columns]
     
