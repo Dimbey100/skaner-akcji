@@ -18,7 +18,6 @@ def wczytaj_ulubione():
     return []
 
 def zapisz_ulubione():
-    # Pobiera aktualny stan listy i zapisuje do pliku przy każdej zmianie
     with open("ulubione.json", "w") as f:
         json.dump(st.session_state["moje_ulubione_widget"], f)
 
@@ -55,16 +54,25 @@ def oblicz_f_score(row):
 @st.cache_data
 def wczytaj_i_przetworz_dane():
     df_lista = []
-    if os.path.exists("sp500_baza.csv"):
-        try: df_lista.append(pd.read_csv("sp500_baza.csv"))
-        except pd.errors.EmptyDataError: st.warning("Plik 'sp500_baza.csv' jest pusty.")
-            
-    if os.path.exists("gpw_baza.csv"):
-        try: df_lista.append(pd.read_csv("gpw_baza.csv"))
-        except pd.errors.EmptyDataError: st.warning("Plik 'gpw_baza.csv' jest pusty.")
+    pliki_baz = [
+        "sp500_baza.csv", 
+        "gpw_baza.csv", 
+        "europa_baza.csv", 
+        "azja_baza.csv"
+    ]
+    
+    # Dynamiczne wczytywanie wszystkich dostępnych plików
+    for plik in pliki_baz:
+        if os.path.exists(plik):
+            try: 
+                df_lista.append(pd.read_csv(plik))
+            except pd.errors.EmptyDataError: 
+                st.warning(f"Plik '{plik}' jest pusty.")
+        else:
+            st.warning(f"Brak pliku '{plik}'. Wgraj go na GitHub, aby rozszerzyć skaner.")
 
     if not df_lista:
-        st.error("Brak plików z bazami danych. Wgraj 'sp500_baza.csv' oraz 'gpw_baza.csv'.")
+        st.error("Brak jakichkolwiek plików z bazami danych. Wgraj pliki CSV.")
         return pd.DataFrame()
         
     df = pd.concat(df_lista, ignore_index=True)
@@ -90,21 +98,18 @@ if not df.empty:
     st.sidebar.header("⚙️ Opcje Skanera")
     st.sidebar.success(f"Wczytano łącznie: {len(df)} spółek")
     
-    wybrany_rynek = st.sidebar.radio(
-        "Wybierz koszyk spółek:",
-        ["Wszystkie (USA + Polska)", "Tylko S&P 500 (USA)", "Tylko GPW (Polska)"]
-    )
+    # Rozszerzone menu wyboru rynku
+    opcje_rynkow = ["Wszystkie Rynki", "S&P 500 (USA)", "GPW (Polska)", "Europa Zachodnia", "Azja"]
+    wybrany_rynek = st.sidebar.radio("Wybierz koszyk spółek:", opcje_rynkow)
     
     st.sidebar.markdown("---")
     st.sidebar.subheader("⭐ Ulubione Spółki")
     
-    wszystkie_symbole = sorted(df["Spółka"].tolist())
+    wszystkie_symbole = sorted(df["Spółka"].astype(str).tolist())
     
-    # Wczytanie z pliku (wykonuje się tylko raz)
     if 'ulubione' not in st.session_state:
         st.session_state['ulubione'] = wczytaj_ulubione()
         
-    # Zabezpieczenie przed błędem, gdybyś usunął spółkę z bazy CSV, ale została w pliku z ulubionymi
     bezpieczne_ulubione = [s for s in st.session_state['ulubione'] if s in wszystkie_symbole]
     
     wybrane_spolki = st.sidebar.multiselect(
@@ -113,17 +118,16 @@ if not df.empty:
         default=bezpieczne_ulubione,
         help="Wpisz lub wybierz z listy skróty spółek, które chcesz śledzić.",
         key="moje_ulubione_widget",
-        on_change=zapisz_ulubione # <--- Wywołuje zapis do pliku przy każdej zmianie
+        on_change=zapisz_ulubione
     )
     
     st.session_state['ulubione'] = wybrane_spolki
     
     pokaz_tylko_ulubione = st.sidebar.checkbox("👁️ Pokazuj TYLKO moje ulubione spółki", value=False)
     
-    if wybrany_rynek == "Tylko S&P 500 (USA)": 
-        df = df[df["Rynek"] == "S&P 500 (USA)"]
-    elif wybrany_rynek == "Tylko GPW (Polska)": 
-        df = df[df["Rynek"] == "GPW (Polska)"]
+    # Filtrowanie po rynku
+    if wybrany_rynek != "Wszystkie Rynki": 
+        df = df[df["Rynek"] == wybrany_rynek]
 
     if pokaz_tylko_ulubione:
         df = df[df["Spółka"].isin(st.session_state['ulubione'])]
