@@ -54,14 +54,13 @@ def oblicz_f_score(row):
 @st.cache_data
 def wczytaj_i_przetworz_dane():
     df_lista = []
-    # Lista wszystkich baz danych, łącznie z nowymi rynkami
+    # Zaktualizowana lista plików (Indie są teraz wewnątrz azja_baza.csv)
     pliki_baz = [
         "sp500_baza.csv", 
         "gpw_baza.csv", 
         "europa_baza.csv", 
         "azja_baza.csv",
-        "latam_baza.csv",
-        "indie_baza.csv"
+        "latam_baza.csv"
     ]
     
     for plik in pliki_baz:
@@ -102,15 +101,14 @@ if not df.empty:
     st.sidebar.header("⚙️ Opcje Skanera")
     st.sidebar.success(f"Wczytano łącznie: {len(df)} spółek")
     
-    # Rozszerzone menu wyboru rynku
+    # Menu wyboru rynku (bez osobnej pozycji dla Indii)
     opcje_rynkow = [
         "Wszystkie Rynki", 
         "S&P 500 (USA)", 
         "GPW (Polska)", 
         "Europa Zachodnia", 
         "Azja",
-        "Ameryka Południowa",
-        "Indie"
+        "Ameryka Południowa"
     ]
     wybrany_rynek = st.sidebar.radio("Wybierz koszyk spółek:", opcje_rynkow)
     
