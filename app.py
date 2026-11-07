@@ -21,6 +21,7 @@ def zapisz_ulubione():
     with open("ulubione.json", "w") as f:
         json.dump(st.session_state["moje_ulubione_widget"], f)
 
+# --- KALKULACJE WSKAŹNIKÓW ---
 def oblicz_cape(df):
     if "Sredni_EPS_10_lat" in df.columns:
         return df["Cena"] / df["Sredni_EPS_10_lat"]
@@ -51,10 +52,11 @@ def oblicz_f_score(row):
     if row.get("Asset_Turnover", 0) > row.get("Asset_Turnover_poprzedni", 0): score += 1
     return score
 
+# --- WCZYTYWANIE DANYCH ---
 @st.cache_data
 def wczytaj_i_przetworz_dane():
     df_lista = []
-    # Zaktualizowana lista plików (Indie są teraz wewnątrz azja_baza.csv)
+    # Lista uwzględniająca Azję połączoną z Indiami
     pliki_baz = [
         "sp500_baza.csv", 
         "gpw_baza.csv", 
@@ -87,6 +89,7 @@ def wczytaj_i_przetworz_dane():
 
     return df
 
+# --- INTERFEJS UI ZAKRESÓW ---
 def stworz_zakres(nazwa, min_def, max_def, krok=1.0, typ=float):
     st.markdown("---")
     wlaczone = st.checkbox(f"Użyj filtru: {nazwa}", value=False, key=f"{nazwa}_check")
@@ -95,13 +98,17 @@ def stworz_zakres(nazwa, min_def, max_def, krok=1.0, typ=float):
     v_max = c2.number_input("MAX", value=typ(max_def), step=typ(krok), key=f"{nazwa}_max", disabled=not wlaczone)
     return wlaczone, v_min, v_max
 
+
+# ==========================================
+# GŁÓWNA LOGIKA APLIKACJI
+# ==========================================
 df = wczytaj_i_przetworz_dane()
 
 if not df.empty:
     st.sidebar.header("⚙️ Opcje Skanera")
     st.sidebar.success(f"Wczytano łącznie: {len(df)} spółek")
     
-    # Menu wyboru rynku (bez osobnej pozycji dla Indii)
+    # 1. Menu wyboru rynku
     opcje_rynkow = [
         "Wszystkie Rynki", 
         "S&P 500 (USA)", 
@@ -112,6 +119,7 @@ if not df.empty:
     ]
     wybrany_rynek = st.sidebar.radio("Wybierz koszyk spółek:", opcje_rynkow)
     
+    # 2. Ulubione
     st.sidebar.markdown("---")
     st.sidebar.subheader("⭐ Ulubione Spółki")
     
@@ -130,12 +138,10 @@ if not df.empty:
         key="moje_ulubione_widget",
         on_change=zapisz_ulubione
     )
-    
     st.session_state['ulubione'] = wybrane_spolki
-    
     pokaz_tylko_ulubione = st.sidebar.checkbox("👁️ Pokazuj TYLKO moje ulubione spółki", value=False)
     
-    # Filtrowanie po wybranym rynku
+    # 3. Wstępne filtrowanie danych 
     if wybrany_rynek != "Wszystkie Rynki": 
         df = df[df["Rynek"] == wybrany_rynek]
 
@@ -144,6 +150,10 @@ if not df.empty:
         if df.empty:
             st.warning("Nie masz żadnych ulubionych spółek w tym koszyku lub lista jest pusta.")
 
+    # USUNIĘCIE Z BAZY SPÓŁEK WYCOFANYCH I BŁĘDNYCH (Cena rzędu 0.00)
+    df = df[df["Cena"] > 0]
+
+    # 4. Sekcja filtrów numerycznych
     st.subheader("Filtry Wskaźników")
     colA, colB = st.columns(2)
     
@@ -160,18 +170,20 @@ if not df.empty:
         debt_wl, debt_min, debt_max = stworz_zakres("Zadłużenie/Kapitał (%)", 0.0, 200.0)
         margin_wl, margin_min, margin_max = stworz_zakres("Marża Zysku (%)", 0.0, 50.0)
 
+    # 5. Rygorystyczne budowanie maski (Odrzuca NaN, gdy filtr jest włączony)
     mask = pd.Series(True, index=df.index)
     
-    if pe_wl: mask &= (df["P/E"].isna() | df["P/E"].between(pe_min, pe_max))
-    if cape_wl: mask &= (df["CAPE_Obliczone"].isna() | df["CAPE_Obliczone"].between(cape_min, cape_max))
-    if ps_wl: mask &= (df["P/S"].isna() | df["P/S"].between(ps_min, ps_max))
-    if pbv_wl: mask &= (df["P/BV"].isna() | df["P/BV"].between(pbv_min, pbv_max))
-    if fscore_wl: mask &= (df["F-Score"].isna() | df["F-Score"].between(fscore_min, fscore_max))
-    if div_wl: mask &= (df["Stopa Dywidendy (%)"].isna() | df["Stopa Dywidendy (%)"].between(div_min, div_max))
-    if roe_wl: mask &= (df["ROE (%)"].isna() | df["ROE (%)"].between(roe_min, roe_max))
-    if debt_wl: mask &= (df["Zadłużenie/Kapitał (%)"].isna() | df["Zadłużenie/Kapitał (%)"].between(debt_min, debt_max))
-    if margin_wl: mask &= (df["Marża Zysku (%)"].isna() | df["Marża Zysku (%)"].between(margin_min, margin_max))
+    if pe_wl: mask &= df["P/E"].notna() & df["P/E"].between(pe_min, pe_max)
+    if cape_wl: mask &= df["CAPE_Obliczone"].notna() & df["CAPE_Obliczone"].between(cape_min, cape_max)
+    if ps_wl: mask &= df["P/S"].notna() & df["P/S"].between(ps_min, ps_max)
+    if pbv_wl: mask &= df["P/BV"].notna() & df["P/BV"].between(pbv_min, pbv_max)
+    if fscore_wl: mask &= df["F-Score"].notna() & df["F-Score"].between(fscore_min, fscore_max)
+    if div_wl: mask &= df["Stopa Dywidendy (%)"].notna() & df["Stopa Dywidendy (%)"].between(div_min, div_max)
+    if roe_wl: mask &= df["ROE (%)"].notna() & df["ROE (%)"].between(roe_min, roe_max)
+    if debt_wl: mask &= df["Zadłużenie/Kapitał (%)"].notna() & df["Zadłużenie/Kapitał (%)"].between(debt_min, debt_max)
+    if margin_wl: mask &= df["Marża Zysku (%)"].notna() & df["Marża Zysku (%)"].between(margin_min, margin_max)
 
+    # 6. Zastosowanie filtrów i wyświetlenie
     filtered_df = df[mask]
     
     st.markdown("---")
