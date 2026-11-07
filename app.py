@@ -56,7 +56,6 @@ def oblicz_f_score(row):
 @st.cache_data
 def wczytaj_i_przetworz_dane():
     df_lista = []
-    # Lista uwzględniająca Azję połączoną z Indiami
     pliki_baz = [
         "sp500_baza.csv", 
         "gpw_baza.csv", 
@@ -108,16 +107,19 @@ if not df.empty:
     st.sidebar.header("⚙️ Opcje Skanera")
     st.sidebar.success(f"Wczytano łącznie: {len(df)} spółek")
     
-    # 1. Menu wyboru rynku
+    # 1. Menu wyboru rynków (Zmienione na multiselect)
     opcje_rynkow = [
-        "Wszystkie Rynki", 
         "S&P 500 (USA)", 
         "GPW (Polska)", 
         "Europa Zachodnia", 
         "Azja",
         "Ameryka Południowa"
     ]
-    wybrany_rynek = st.sidebar.radio("Wybierz koszyk spółek:", opcje_rynkow)
+    wybrane_rynki = st.sidebar.multiselect(
+        "Wybierz rynki do analizy:", 
+        options=opcje_rynkow,
+        default=opcje_rynkow # Domyślnie wczytują się wszystkie
+    )
     
     # 2. Ulubione
     st.sidebar.markdown("---")
@@ -142,13 +144,16 @@ if not df.empty:
     pokaz_tylko_ulubione = st.sidebar.checkbox("👁️ Pokazuj TYLKO moje ulubione spółki", value=False)
     
     # 3. Wstępne filtrowanie danych 
-    if wybrany_rynek != "Wszystkie Rynki": 
-        df = df[df["Rynek"] == wybrany_rynek]
+    if wybrane_rynki:
+        df = df[df["Rynek"].isin(wybrane_rynki)]
+    else:
+        st.warning("⚠️ Wybierz przynajmniej jeden rynek z panelu bocznego, aby zobaczyć spółki.")
+        df = df.iloc[0:0] # Wyczyszczenie widoku, gdy nic nie jest wybrane
 
     if pokaz_tylko_ulubione:
         df = df[df["Spółka"].isin(st.session_state['ulubione'])]
-        if df.empty:
-            st.warning("Nie masz żadnych ulubionych spółek w tym koszyku lub lista jest pusta.")
+        if df.empty and wybrane_rynki:
+            st.warning("Nie masz żadnych ulubionych spółek w wybranych koszykach lub lista jest pusta.")
 
     # USUNIĘCIE Z BAZY SPÓŁEK WYCOFANYCH I BŁĘDNYCH (Cena rzędu 0.00)
     df = df[df["Cena"] > 0]
